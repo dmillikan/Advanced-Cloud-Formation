@@ -92,6 +92,7 @@ Resources:
           !Sub |
             #!/bin/bash
             yum update -y aws-cfn-bootstrap #update this as best practice
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2
             /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2 --configsets wordpress --region ${AWS::Region}
             yum update -y
     Metadata:
@@ -135,10 +136,9 @@ Resources:
         install_wordpress:
           packages:
             yum:
-              httpd: []
               php: []
-              # mysql: []
-              php-mysql: []
+              php-mysqlnd: []
+              httpd: []
           sources:
             /var/www/html: "https://wordpress.org/latest.tar.gz"
           services:
