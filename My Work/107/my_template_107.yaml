@@ -24,6 +24,18 @@ Parameters:
   TestString:
     Type: String
     Default: test1
+  SnapToRestore:
+    Type: String
+    Default: ""
+    Description: snap id to restore
+
+Conditions:
+  isLarge:
+    !Equals [!Ref EnvironmentSize, "LARGE"]
+  isNotLarge:
+    !Not [!Equals [!Ref EnvironmentSize, "LARGE"]] 
+  isRestore:
+    !Not [!Equals [!Ref SnapToRestore, ""]]
 
 Mappings:
   EnvSize:
@@ -36,6 +48,7 @@ Mappings:
     LARGE:
       "EC2": "t3a.small"
       "DB": "db.t3.medium"
+
   RegionMap:
     us-east-1:
       AMALINUX: ami-0b69ea66ff7391e80 #this is amazon linux 2 ami
@@ -73,15 +86,34 @@ Mappings:
 Resources:
   DB:
     Type: "AWS::RDS::DBInstance"
-    DeletionPolicy: Delete
+    DeletionPolicy: Snapshot
+    Condition: isNotLarge
     Properties:
       AllocatedStorage: 5
       StorageType: gp2
       DBInstanceClass: !FindInMap [EnvSize, !Ref EnvironmentSize, DB]
-      DBName: !Ref DatabaseName
+      DBName: !If [isRestore, !Ref "AWS::NoValue", !Ref DatabaseName]
       Engine: MySQL
-      MasterUsername: !Ref DatabaseUser
-      MasterUserPassword: !Ref DatabasePassword
+      MasterUsername: !If [isRestore, !Ref "AWS::NoValue",!Ref DatabaseUser]
+      MasterUserPassword: !If [isRestore, !Ref "AWS::NoValue",!Ref DatabasePassword]
+      DBSnapshotIdentifier: !If [isRestore, !Ref SnapToRestore, !Ref "AWS::NoValue"]
+  DBAuroraCluster:
+    Type: "AWS::RDS::DBCluster"
+    DeletionPolicy: Snapshot
+    Condition: isLarge # only create if its a large EnvironmentSize
+    Properties:
+      DatabaseName: !If [isRestore, !Ref "AWS::NoValue", !Ref DatabaseName]
+      Engine: aurora
+      MasterUsername: !If [isRestore, !Ref "AWS::NoValue", !Ref DatabaseUser]
+      MasterUserPassword: !If [isRestore, !Ref "AWS::NoValue", !Ref DatabasePassword]
+      SnapshotIdentifier: !If [isRestore, !Ref SnapToRestore, !Ref "AWS::NoValue"]
+  DBAurora:
+    Type : "AWS::RDS::DBInstance"
+    Condition: isLarge # only create if its a large EnvironmentSize
+    Properties:
+      DBClusterIdentifier: !Ref DBAuroraCluster
+      Engine: aurora
+      DBInstanceClass: !FindInMap [EnvSize, !Ref EnvironmentSize, DB]
   EC2:
     Type: AWS::EC2::Instance
     DeletionPolicy: Delete
@@ -165,8 +197,12 @@ Resources:
                 sed -i 's/database_name_here/${DatabaseName}/g' wp-config.php
             03_replace_address:
               cwd: "/var/www/html/wordpress"
-              command: !Sub |
-                sed -i 's/localhost/${DB.Endpoint.Address}/g' wp-config.php
+              command: !If
+                - isLarge
+                - !Sub |
+                  sed -i 's/localhost/${DBAuroraCluster.Endpoint.Address}/g' wp-config.php
+                - !Sub |
+                  sed -i 's/localhost/${DB.Endpoint.Address}/g' wp-config.php
             04_replace_user:
               cwd: "/var/www/html/wordpress"
               command: !Sub |

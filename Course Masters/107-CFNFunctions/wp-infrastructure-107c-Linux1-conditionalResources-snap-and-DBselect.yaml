@@ -21,6 +21,7 @@ Parameters:
     Type: String
     Default: w0rdpr355
     NoEcho: true
+
 Conditions:
   isLarge:
     !Equals [!Ref EnvironmentSize, "LARGE"]
@@ -28,6 +29,7 @@ Conditions:
     !Not [!Equals [!Ref EnvironmentSize, "LARGE"]]
   isRestore:
     !Not [!Equals [!Ref SnapToRestore, ""]]
+
 Mappings:
   RegionMap:
     us-east-1:
@@ -62,7 +64,6 @@ Mappings:
       AMALINUX: ami-0ad42f4f66f6c1cc9
     cn-north-1:
       AMALINUX: ami-8e6aa0e3
-
   InstanceSize:
     SMALL:
       "EC2" : "t2.micro"
@@ -73,6 +74,7 @@ Mappings:
     LARGE:
       "EC2" : "t2.medium"
       "DB" : "db.r3.xlarge"
+
 Resources:
   DB:
     Type: "AWS::RDS::DBInstance"
