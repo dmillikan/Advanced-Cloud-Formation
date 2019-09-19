@@ -1,8 +1,8 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'A simple template intended to be run in N.Virginia (us-east-1) with a Linux (1) distro. Feel free to change the ami so that you can run this in a different Region'
+
 Parameters:
-  SnapToRestore:
-    Type: String
-    Default: ""
-    Description: snap id to restore
   EnvironmentSize:
     Type: String
     Default: SMALL
@@ -16,31 +16,51 @@ Parameters:
     Default: wordpress
     MinLength: 1
     MaxLength: 64
-    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*" # start with a letter, only alphanumeric characters - new for this lesson
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
   DatabaseUser:
     Type: String
+    Default: wordpress
     MinLength: 1
     MaxLength: 16
-    Default: wordpress
-    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*" # start with a letter, only alphanumeric characters - new for this lesson
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
   DatabasePassword:
     Type: String
+    Default: 5j055nsawx387qPxqNHiUHNzx56
+    NoEcho: true
     MinLength: 8
     MaxLength: 41
-    Default: w0rdpr355
-    NoEcho: true
-    AllowedPattern: "[a-zA-Z0-9]*" # Must only contain alphanumeric characters - new for this lesson
+    AllowedPattern: "[a-zA-Z0-9]*"
+  TestString:
+    Type: String
+    Default: test1
+  SnapToRestore:
+    Type: String
+    Default: ""
+    Description: snap id to restore
+
 Conditions:
   isLarge:
     !Equals [!Ref EnvironmentSize, "LARGE"]
-  isntLarge:
-    !Not [!Equals [!Ref EnvironmentSize, "LARGE"]]
+  isNotLarge:
+    !Not [!Equals [!Ref EnvironmentSize, "LARGE"]] 
   isRestore:
     !Not [!Equals [!Ref SnapToRestore, ""]]
+
 Mappings:
+  EnvSize:
+    SMALL:
+      "EC2": "t3a.nano"
+      "DB": "db.t3.micro"
+    MEDIUM:
+      "EC2": "t3a.micro"
+      "DB": "db.t3.small"
+    LARGE:
+      "EC2": "t3a.small"
+      "DB": "db.t3.medium"
+
   RegionMap:
     us-east-1:
-      AMALINUX: ami-0080e4c5bc078760e
+      AMALINUX: ami-0b69ea66ff7391e80 #this is amazon linux 2 ami
     us-east-2:
       AMALINUX: ami-0cd3dfa4e37921605
     us-west-1:
@@ -72,30 +92,19 @@ Mappings:
     cn-north-1:
       AMALINUX: ami-8e6aa0e3
 
-  InstanceSize:
-    SMALL:
-      "EC2" : "t2.micro"
-      "DB" : "db.t2.micro"
-    MEDIUM:
-      "EC2" : "t2.small"
-      "DB" : "db.t2.small"
-    LARGE:
-      "EC2" : "t2.medium"
-      "DB" : "db.r3.xlarge"
-
 Resources:
   # DB:
   #   Type: "AWS::RDS::DBInstance"
-  #   Condition: isntLarge # added - only create the MySQL DB if its small/med
   #   DeletionPolicy: Snapshot
+  #   Condition: isNotLarge
   #   Properties:
   #     AllocatedStorage: 5
-  #     DBInstanceClass: !FindInMap [InstanceSize, !Ref EnvironmentSize, DB] # Dynamic mapping + Pseudo Parameter
+  #     StorageType: gp2
+  #     DBInstanceClass: !FindInMap [EnvSize, !Ref EnvironmentSize, DB]
   #     DBName: !If [isRestore, !Ref "AWS::NoValue", !Ref DatabaseName]
   #     Engine: MySQL
-  #     StorageType: gp2
-  #     MasterUsername: !If [isRestore, !Ref "AWS::NoValue", !Ref DatabaseUser]
-  #     MasterUserPassword: !If [isRestore, !Ref "AWS::NoValue", !Ref DatabasePassword]
+  #     MasterUsername: !If [isRestore, !Ref "AWS::NoValue",!Ref DatabaseUser]
+  #     MasterUserPassword: !If [isRestore, !Ref "AWS::NoValue",!Ref DatabasePassword]
   #     DBSnapshotIdentifier: !If [isRestore, !Ref SnapToRestore, !Ref "AWS::NoValue"]
   # DBAuroraCluster:
   #   Type: "AWS::RDS::DBCluster"
@@ -113,26 +122,27 @@ Resources:
   #   Properties:
   #     DBClusterIdentifier: !Ref DBAuroraCluster
   #     Engine: aurora
-  #     DBInstanceClass: !FindInMap [InstanceSize, !Ref EnvironmentSize, DB]
+  #     DBInstanceClass: !FindInMap [EnvSize, !Ref EnvironmentSize, DB]
   EC2:
-    Type: "AWS::EC2::Instance"
+    Type: AWS::EC2::Instance
     DeletionPolicy: Delete
     Properties:
-      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMALINUX] # Dynamic mapping + Pseudo Parameter
-      InstanceType: !FindInMap [InstanceSize, !Ref EnvironmentSize, EC2]
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMALINUX]
+      InstanceType: !FindInMap [EnvSize, !Ref EnvironmentSize, EC2]
       KeyName: AdvancedCFN
       UserData:
         "Fn::Base64":
           !Sub |
             #!/bin/bash
-            yum update -y aws-cfn-bootstrap # good practice - always do this.
+            yum update -y aws-cfn-bootstrap #update this as best practice
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 #this is needed for modern php
             /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2 --configsets wordpress --region ${AWS::Region}
-            yum -y update
+            yum update -y
             /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource EC2 --region ${AWS::Region}
     CreationPolicy:
       ResourceSignal:
-        Count: "1"
-        Timeout: PT15M
+        Count: "1" 
+        Timeout: PT10M             
     Metadata:
       AWS::CloudFormation::Init:
         configSets:
@@ -142,44 +152,43 @@ Resources:
             - "config_wordpress"
         configure_cfn:
           files:
-            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+            /etc/cfn/hooks.d/cnf-auto-reloader.conf:
               content: !Sub |
                 [cfn-auto-reloader-hook]
                 triggers=post.update
                 path=Resources.EC2.Metadata.AWS::CloudFormation::Init
                 action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2 --configsets wordpress --region ${AWS::Region}
-              mode: "000400"
+              mode: "00400"
               owner: root
               group: root
             /etc/cfn/cfn-hup.conf:
               content: !Sub |
                 [main]
-                stack=${AWS::StackId}
-                region=${AWS::Region}
+                stack=${AWS::StackName}
+                region=${AWS::Region} 
                 verbose=true
                 interval=5
-              mode: "000400"
+              mode: "00400"
               owner: root
               group: root
             /var/www/html/index2.html:
-              content: "test9"
+              content: !Ref TestString
           services:
             sysvinit:
               cfn-hup:
                 enabled: "true"
                 ensureRunning: "true"
-                files:
+                file:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
         install_wordpress:
           packages:
             yum:
-              httpd: []
               php: []
-              mysql: []
-              php-mysql: []
+              php-mysqlnd: []
+              httpd: []
           sources:
-            /var/www/html: "http://wordpress.org/latest.tar.gz"
+            /var/www/html: "https://wordpress.org/latest.tar.gz"
           services:
             sysvinit:
               httpd:
@@ -191,29 +200,29 @@ Resources:
               cwd: "/var/www/html/wordpress"
               test: "test ! -e /var/www/html/wordpress/wp-config.php"
               command: "cp wp-config-sample.php wp-config.php"
-            # 02_inject_dbhost:
-            #   cwd: "/var/www/html/wordpress"
-            #   command: !If
-            #     - isntLarge
-            #     - !Sub |
-            #       sed -i 's/localhost/${DB.Endpoint.Address}/g' wp-config.php
-            #     - !Sub |
-            #       sed -i 's/localhost/${DBAuroraCluster.Endpoint.Address}/g' wp-config.php
-            # 03_inject_dbname:
+            # 02_replace_database_name:
             #   cwd: "/var/www/html/wordpress"
             #   command: !Sub |
             #     sed -i 's/database_name_here/${DatabaseName}/g' wp-config.php
-            # 04_inject_dbuser:
+            # 03_replace_address:
+            #   cwd: "/var/www/html/wordpress"
+            #   command: !If
+            #     - isLarge
+            #     - !Sub |
+            #       sed -i 's/localhost/${DBAuroraCluster.Endpoint.Address}/g' wp-config.php
+            #     - !Sub |
+            #       sed -i 's/localhost/${DB.Endpoint.Address}/g' wp-config.php
+            # 04_replace_user:
             #   cwd: "/var/www/html/wordpress"
             #   command: !Sub |
             #     sed -i 's/username_here/${DatabaseUser}/g' wp-config.php
-            # 05_inject_dbpassword:
-            #   cwd: "/var/www/html/wordpress"
-            #   command: !Sub |
-            #     sed -i 's/password_here/${DatabasePassword}/g' wp-config.php
             # 06_store_instance_ip:
             #   cwd: "/var/www/html/wordpress"
             #   command: "curl http://169.254.169.254/latest/meta-data/public-ipv4 > ip.address"
+            # 05_replace_password:
+            #   cwd: "/var/www/html/wordpress"
+            #   command: !Sub |
+            #     sed -i 's/password_here/${DatabasePassword}/g' wp-config.php
             # 07a_inject_IP_1: # this allows a restore & change of IP without causing WP errors.
             #   cwd: "/var/www/html/wordpress"
             #   command: !Sub |
@@ -232,11 +241,12 @@ Resources:
             #     myip=`cat ip.address` && echo "update_option('home','http://${!myip}/wordpress');" >> /var/www/html/wordpress/wp-content/themes/twentyseventeen/functions.php
   S3:
     Type: "AWS::S3::Bucket"
-    DeletionPolicy: Retain
+    DeletionPolicy: Delete
 Outputs:
   wproot:
     Description: Access URL for wordpress
     Value: !Join ["", ["http://", !GetAtt EC2.PublicIp, "/wordpress"]]
   wpadmin:
-    Description: Admin Login URL
+    Description: Admin Login URL - if restoring from snap, always go to this URL first
     Value: !Join ["", ["http://", !GetAtt EC2.PublicIp, "/wordpress/wp-login.php"]]
+
